@@ -36,6 +36,43 @@ Both jobs install OpenTofu with `opentofu/setup-opentofu@v2` and start LocalStac
 
 Because every workflow run starts a fresh LocalStack container and a fresh state file, the resources are created from scratch each time and disappear when the job ends. This is expected for this assignment.
 
+## Approvals and governance
+
+### What this project does
+
+The `apply` job runs `tofu apply -auto-approve` as soon as a change lands on `main`. The plan on the pull request is the only review step, and nothing in the pipeline pauses for a human. State uses `backend "local"`, so it lives on the runner and is discarded after each job.
+
+That is acceptable here because nothing real is at stake. LocalStack is a simulation, there are no cloud credentials, nothing costs money, and the resources vanish when the job ends. The worst outcome of a bad apply is a failed run.
+
+### What a team would add
+
+For real infrastructure, the pull request and the apply would each get a gate:
+
+| Control | What it does |
+|---|---|
+| **Branch protection or a ruleset on `main`** | Blocks direct pushes and requires a pull request. Requires the `plan` status check to pass before merging. |
+| **Required reviewers** | Requires at least one approving review, ideally from the people who own the infrastructure (a `CODEOWNERS` file can route reviews). Stale approvals can be dismissed when new commits are pushed. |
+| **GitHub environment with required reviewers** | Adding `environment: production` to the `apply` job pauses it until a designated reviewer approves the deployment. The environment can also be limited to deploys from `main`. |
+| **Reviewed plan equals applied plan** | Run `tofu plan -out=tfplan`, keep that file, and apply exactly that plan. Otherwise the apply re-plans at merge time and may differ from what was reviewed. |
+| **Plan posted to the pull request** | Putting the plan output in a PR comment gives reviewers the full diff without opening the Actions log. |
+| **Remote state with locking** | A shared backend with locking (for example S3 with a lock table) lets the team share one source of truth and prevents two applies from running at once. A workflow `concurrency` group adds a second layer. |
+| **Least-privilege credentials** | Real cloud access would use short-lived credentials (such as OIDC) scoped to what the pipeline needs, not long-lived admin keys. |
+
+Platform details vary. For example, branch protection on private repositories depends on the GitHub plan, and by default a pull request author cannot approve their own PR, so a solo project needs a second reviewer or relies on the passing plan check alone.
+
+### Trade-offs of `-auto-approve`
+
+**Benefits:** it is fast and fully automated, it removes manual steps, and it makes every merge deploy, which is the core of a GitOps flow. It is also the only option for a pipeline with nobody watching.
+
+**Risks:**
+- **No human check at apply time.** A destructive change, such as replacing a database, is applied without a pause. Reviewers have to catch it in the plan before merging.
+- **The plan can go stale.** Time passes between the PR plan and the merge, and other merges or manual changes can alter what the apply actually does. Auto-approve applies whatever the new plan says.
+- **Review quality becomes the only control.** If branch protection is missing or reviewers skim the plan, a mistake or a malicious change reaches production directly.
+- **Larger blast radius for compromise.** Anyone who can merge to `main`, or who compromises a workflow dependency, can change infrastructure using the pipeline's credentials.
+- **Weaker audit trail.** Git history shows who merged, but no separate record shows who approved the apply.
+
+**Governance view:** auto-approve moves the approval from the apply step to the merge step. That is a sound design only if the merge is genuinely controlled: protected branch, required checks, required reviews, and credentials limited to the minimum. The more valuable or irreversible the infrastructure, the more it makes sense to add the environment gate or an apply-from-saved-plan step, accepting some speed loss in exchange for a deliberate human decision.
+
 ## Why LocalStack is pinned to 4.4.0
 
 The workflow uses `localstack/localstack:4.4.0` instead of the default `latest` tag.
