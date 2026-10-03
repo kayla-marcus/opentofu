@@ -29,7 +29,7 @@ State is stored with an explicit `backend "local"` declaration (`terraform.tfsta
 
 | Event | What runs |
 |---|---|
-| Pull request targeting `main` | `tofu fmt -check`, `tofu init`, `tofu validate`, `tofu plan` |
+| Pull request targeting `main` | `tofu fmt -check`, `tofu init`, `tofu validate`, `tofu plan`, then the plan output is posted as a PR comment |
 | Push to `main` (including a merged PR) | `tofu init`, `tofu apply -auto-approve` |
 
 Both jobs install OpenTofu with `opentofu/setup-opentofu@v2` and start LocalStack as a service container before OpenTofu runs. No AWS credentials or repository secrets are used. The provider config uses dummy credentials, which LocalStack accepts.
@@ -54,7 +54,7 @@ For real infrastructure, the pull request and the apply would each get a gate:
 | **Required reviewers** | Requires at least one approving review, ideally from the people who own the infrastructure (a `CODEOWNERS` file can route reviews). Stale approvals can be dismissed when new commits are pushed. |
 | **GitHub environment with required reviewers** | Adding `environment: production` to the `apply` job pauses it until a designated reviewer approves the deployment. The environment can also be limited to deploys from `main`. |
 | **Reviewed plan equals applied plan** | Run `tofu plan -out=tfplan`, keep that file, and apply exactly that plan. Otherwise the apply re-plans at merge time and may differ from what was reviewed. |
-| **Plan posted to the pull request** | Putting the plan output in a PR comment gives reviewers the full diff without opening the Actions log. |
+| **Plan posted to the pull request** | Putting the plan output in a PR comment gives reviewers the full diff without opening the Actions log. **This project does this:** the `plan` job posts its output with the GitHub CLI using the built-in `GITHUB_TOKEN`, with `pull-requests: write` granted to that job only. |
 | **Remote state with locking** | A shared backend with locking (for example S3 with a lock table) lets the team share one source of truth and prevents two applies from running at once. A workflow `concurrency` group adds a second layer. |
 | **Least-privilege credentials** | Real cloud access would use short-lived credentials (such as OIDC) scoped to what the pipeline needs, not long-lived admin keys. |
 

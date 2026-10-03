@@ -13,6 +13,10 @@ jobs:
   plan:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    # Job-level permissions replace the workflow-level ones, so contents is repeated.
+    permissions:
+      contents: read
+      pull-requests: write
     services:
       localstack:
         image: localstack/localstack:4.4.0
@@ -36,7 +40,27 @@ jobs:
       - run: tofu fmt -check
       - run: tofu init -input=false
       - run: tofu validate
-      - run: tofu plan -input=false
+
+      # Explicit shell enables pipefail, so a failed plan still fails the step.
+      - name: Plan
+        shell: bash
+        run: tofu plan -input=false -no-color 2>&1 | tee plan.txt
+
+      # Runs even if the plan failed, so reviewers see the error too.
+      - name: Comment plan on PR
+        if: always() && hashFiles('plan.txt') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          {
+            echo "### OpenTofu plan"
+            echo
+            echo '```'
+            head -c 60000 plan.txt
+            echo '```'
+          } > comment.md
+          gh pr comment "$PR_NUMBER" --body-file comment.md
 
   apply:
     if: github.event_name == 'push'
